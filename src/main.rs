@@ -25,7 +25,7 @@ fn read_entries(location: &Location, grouped: bool, tx_item: SkimItemSender) {
         return;
     }
     let conn = conn_res.unwrap();
-    let s = build_query_string(&location, grouped);
+    let s = build_query_string(location, grouped);
 
     let stmt_result = conn.prepare(&s);
     if stmt_result.is_err() {
@@ -40,10 +40,10 @@ fn read_entries(location: &Location, grouped: bool, tx_item: SkimItemSender) {
 
     let cats = stmt.query_map([], |row| {
         let cmd: String = row.get("cmd")?;
-        let commandend = cmd.len() as usize;
+        let commandend = cmd.len();
         Ok(History {
             id: row.get("id")?,
-            cmd: cmd,
+            cmd,
             start: row.get("start")?,
             exit_status: row.get("exit_status")?,
             duration: row.get("duration")?,
@@ -73,7 +73,7 @@ struct SelectionResult {
 
 fn get_starting_location() -> Location {
     let mut location = Location::Session;
-    if get_current_session_id() == "" {
+    if get_current_session_id().is_empty() {
         location = Location::Directory;
     }
     location
@@ -144,12 +144,12 @@ fn process_result(
             }
             Key::Enter => {
                 return SelectionResult {
-                    selected_cmd: Some(format!(
-                        "{}",
+                    selected_cmd: Some(
                         ((*sel.selected_items[0]).as_any().downcast_ref::<History>())
                             .unwrap()
                             .command()
-                    )),
+                            .to_string(),
+                    ),
                     abort: false,
                 };
             }
@@ -178,15 +178,15 @@ fn process_result(
             }
             _ => (),
         };
-        return SelectionResult {
+        SelectionResult {
             selected_cmd: None,
             abort: false,
-        };
+        }
     } else {
-        return SelectionResult {
+        SelectionResult {
             selected_cmd: None,
             abort: true,
-        };
+        }
     }
 }
 
@@ -195,12 +195,11 @@ fn main() -> Result<()> {
         Connection::open_with_flags(get_histdb_database(), OpenFlags::SQLITE_OPEN_READ_ONLY);
 
     let args: Vec<String> = env::args().collect();
-    let query = |args: Vec<String>| -> String {
-        if args.len() > 1 {
-            return args[1].to_string();
-        }
-        return "".to_string();
-    }(args);
+    let query = if args.len() > 1 {
+        args[1].to_string()
+    } else {
+        "".to_string()
+    };
 
     if query == "--version" {
         println!("v0.8.6");
