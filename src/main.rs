@@ -13,27 +13,37 @@ use crate::title::generate_title;
 
 use rusqlite::{Connection, OpenFlags, Result};
 use skim::prelude::*;
+use std::collections::HashSet;
 use std::env;
+use std::sync::RwLock;
 use std::thread;
 
-fn read_entries(location: &Location, grouped: bool, tx_item: SkimItemSender) {
+struct HistoryCollection {
+    collection: Vec<History>,
+    filled: bool,
+}
+
+impl HistoryCollection {
+    fn new() -> Self {
+        HistoryCollection {
+            collection: Vec::new(),
+            filled: false,
+        }
+    }
+}
+
+fn read_entries(history_collection: Arc<RwLock<HistoryCollection>>) {
     let conn_res =
         Connection::open_with_flags(get_histdb_database(), OpenFlags::SQLITE_OPEN_READ_ONLY);
     if conn_res.is_err() {
-        let _ = tx_item.send(Arc::new("Cannot open database"));
-        drop(tx_item);
         return;
     }
     let conn = conn_res.unwrap();
-    let s = build_query_string(location, grouped);
+
+    let s = build_query_string();
 
     let stmt_result = conn.prepare(&s);
     if stmt_result.is_err() {
-        let _ = tx_item.send(Arc::new(format!(
-            "Cannot get result from database {}",
-            stmt_result.err().unwrap()
-        )));
-        drop(tx_item);
         return;
     }
     let mut stmt = stmt_result.unwrap();
@@ -60,15 +70,99 @@ fn read_entries(location: &Location, grouped: bool, tx_item: SkimItemSender) {
     for person in cats.unwrap() {
         if person.is_ok() {
             let x = person.unwrap();
-            let _ = tx_item.send(Arc::new(x));
+            let mut c = history_collection.write().unwrap();
+            c.collection.push(x);
         }
     }
-    drop(tx_item);
+    let mut c = history_collection.write().unwrap();
+    c.filled = true;
 }
 
-struct SelectionResult {
-    selected_cmd: Option<String>,
-    abort: bool,
+fn filter_entry(location: &Location, app_state: &AppState, entry: &History) -> bool {
+    match location {
+        Location::Session => entry.session == app_state.session,
+        Location::Directory => entry.dir == app_state.dir,
+        Location::Machine => entry.host == app_state.machine,
+        Location::Everywhere => true,
+    }
+}
+
+struct AppState {
+    session: i64,
+    dir: String,
+    machine: String,
+}
+
+fn filter_entries(
+    history_collection: Arc<RwLock<HistoryCollection>>,
+    location: &Location,
+    tx_item: SkimItemSender,
+    end_early: Arc<RwLock<bool>>,
+    grouped: bool,
+) {
+    let app_state = AppState {
+        session: get_current_session_id().parse::<i64>().unwrap(),
+        dir: get_current_dir(),
+        machine: get_current_host(),
+    };
+
+    let mut seen_commands = HashSet::new();
+
+    let filled = {
+        let c = history_collection.read().unwrap();
+        c.filled
+    };
+    if filled {
+        let c = history_collection.read().unwrap();
+        for i in 0..c.collection.len() {
+            let wanted = filter_entry(location, &app_state, &c.collection[i]);
+            if !grouped || !seen_commands.contains(&c.collection[i].cmd) {
+                if wanted {
+                    let history_entry = c.collection[i].clone();
+                    let _ = tx_item.send(Arc::new(history_entry));
+                }
+                seen_commands.insert(c.collection[i].cmd.clone());
+            }
+        }
+    } else {
+        let mut last_read = 0;
+        'outer: loop {
+            let filled = {
+                let c = history_collection.read().unwrap();
+                c.filled
+            };
+            let len = {
+                let c = history_collection.read().unwrap();
+                c.collection.len()
+            };
+            for i in last_read..len {
+                let c = history_collection.read().unwrap();
+                let end_early = end_early.read().unwrap();
+                if *end_early {
+                    break 'outer;
+                }
+                let wanted = filter_entry(location, &app_state, &c.collection[i]);
+                if !grouped || !seen_commands.contains(&c.collection[i].cmd) {
+                    if wanted {
+                        let history_entry = c.collection[i].clone();
+                        let _ = tx_item.send(Arc::new(history_entry));
+                    }
+                    seen_commands.insert(c.collection[i].cmd.clone());
+                }
+            }
+            last_read = len;
+            if filled {
+                break;
+            }
+        }
+    }
+}
+
+enum SelectionResult {
+    Command(String),
+    NullCommand,
+    Continue,
+    Abort,
 }
 
 fn get_starting_location() -> Location {
@@ -83,6 +177,15 @@ fn show_history(thequery: String) -> Result<String, String> {
     let mut location = get_starting_location();
     let mut grouped = true;
     let mut query = thequery;
+    let history_collection = Arc::new(RwLock::new(HistoryCollection::new()));
+
+    let _handle = {
+        let history_collection = history_collection.clone();
+        thread::spawn(move || {
+            read_entries(history_collection);
+        })
+    };
+
     loop {
         let title = generate_title(&location);
 
@@ -109,22 +212,34 @@ fn show_history(thequery: String) -> Result<String, String> {
             .unwrap();
 
         let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
+        let end_early = Arc::new(RwLock::new(false));
 
-        let handle = thread::spawn(move || {
-            read_entries(&location, grouped, tx_item);
-        });
+        let handle = {
+            let history_collection = history_collection.clone();
+            let end_early = end_early.clone();
+            thread::spawn(move || {
+                filter_entries(history_collection, &location, tx_item, end_early, grouped);
+            })
+        };
 
         let selected_items = Skim::run_with(&options, Some(rx_item));
+
+        if let Some(output) = &selected_items {
+            if output.is_abort {
+                let mut end_early = end_early.write().unwrap();
+                *end_early = true;
+            }
+        }
         handle.join().unwrap();
 
         let selection_result = process_result(&selected_items, &mut location, &mut grouped);
-        if selection_result.abort {
-            return Err("Aborted".to_string());
-        }
-        if selection_result.selected_cmd.is_some() {
-            return Ok(selection_result.selected_cmd.unwrap());
-        }
-        query = selected_items.unwrap().query;
+
+        match selection_result {
+            SelectionResult::Abort => return Err("Aborted".to_string()),
+            SelectionResult::Continue => query = selected_items.unwrap().query,
+            SelectionResult::Command(command) => return Ok(command),
+            SelectionResult::NullCommand => return Ok(selected_items.unwrap().query),
+        };
     }
 }
 
@@ -137,21 +252,19 @@ fn process_result(
         let sel = selected_items.as_ref().unwrap();
         match sel.final_key {
             Key::ESC | Key::Ctrl('c') | Key::Ctrl('d') | Key::Ctrl('z') => {
-                return SelectionResult {
-                    selected_cmd: None,
-                    abort: true,
-                };
+                return SelectionResult::Abort;
             }
             Key::Enter => {
-                return SelectionResult {
-                    selected_cmd: Some(
+                if sel.selected_items.is_empty() {
+                    return SelectionResult::NullCommand;
+                } else {
+                    return SelectionResult::Command(
                         ((*sel.selected_items[0]).as_any().downcast_ref::<History>())
                             .unwrap()
                             .command()
                             .to_string(),
-                    ),
-                    abort: false,
-                };
+                    );
+                }
             }
             Key::F(1) => {
                 *loc = Location::Session;
@@ -178,15 +291,9 @@ fn process_result(
             }
             _ => (),
         };
-        SelectionResult {
-            selected_cmd: None,
-            abort: false,
-        }
+        SelectionResult::Continue
     } else {
-        SelectionResult {
-            selected_cmd: None,
-            abort: true,
-        }
+        SelectionResult::Continue
     }
 }
 
