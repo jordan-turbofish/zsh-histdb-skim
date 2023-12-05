@@ -13,9 +13,9 @@ pub fn generate_title(location: &Location) -> String {
     }(&location);
 
     let location_map = enum_map! {
-        Location::Session => "Session location history",
-        Location::Directory => "Directory location history",
-        Location::Machine => "Machine location history",
+        Location::Session => "Session:",
+        Location::Directory => "Directory:",
+        Location::Machine => "Host:",
         Location::Everywhere => "Everywhere",
     };
 
