@@ -18,7 +18,7 @@ fn get_epoch_start_of_day() -> u64 {
     now_secs - seconds_since_midnight
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct History {
     pub id: i64,
     pub cmd: String,

@@ -1,49 +1,12 @@
-use crate::environment::*;
-use crate::location::Location;
-
-pub fn build_query_string(theloc: &Location, grouped: bool) -> String {
+pub fn build_query_string() -> String {
     let mut query = String::from("select history.id as id, commands.argv as cmd,");
-    if !grouped {
-        query.push_str(" start_time")
-    } else {
-        query.push_str(" max(start_time)")
-    }
+    query.push_str(" start_time");
     query.push_str(" as start, exit_status, duration,");
-    if !grouped {
-        query.push_str(" 1")
-    } else {
-        query.push_str(" count()")
-    }
+    query.push_str(" 1");
     query.push_str(" as count, history.session as session, places.host as host, places.dir as dir");
     query.push_str(" from history");
     query.push_str(" left join commands on history.command_id = commands.id");
     query.push_str(" left join places on history.place_id = places.id");
-    match theloc {
-        Location::Session | Location::Directory | Location::Machine => {
-            query.push_str(" where");
-        }
-        _ => {}
-    };
-    match theloc {
-        Location::Session => {
-            query.push_str(&format!(" session == {} and", &get_current_session_id()));
-        }
-
-        Location::Directory => {
-            query.push_str(&format!(" places.dir like '{}' and", &get_current_dir()));
-        }
-
-        _ => {}
-    };
-    match theloc {
-        Location::Session | Location::Directory | Location::Machine => {
-            query.push_str(&format!(" places.host == '{}'", &get_current_host()));
-        }
-        _ => {}
-    };
-    if grouped {
-        query.push_str(" group by history.command_id, history.place_id");
-    }
     query.push_str(" order by start desc");
     return query;
 }
