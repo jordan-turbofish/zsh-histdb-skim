@@ -15,7 +15,7 @@ use rusqlite::{Connection, OpenFlags, Result};
 use skim::prelude::*;
 use std::collections::HashSet;
 use std::env;
-use std::sync::RwLock;
+use std::sync::Mutex;
 use std::thread;
 
 struct HistoryCollection {
@@ -32,7 +32,7 @@ impl HistoryCollection {
     }
 }
 
-fn read_entries(history_collection: Arc<RwLock<HistoryCollection>>) {
+fn read_entries(history_collection: Arc<Mutex<HistoryCollection>>) {
     let conn_res =
         Connection::open_with_flags(get_histdb_database(), OpenFlags::SQLITE_OPEN_READ_ONLY);
     if conn_res.is_err() {
@@ -48,33 +48,42 @@ fn read_entries(history_collection: Arc<RwLock<HistoryCollection>>) {
     }
     let mut stmt = stmt_result.unwrap();
 
-    let cats = stmt.query_map([], |row| {
-        let cmd: String = row.get("cmd")?;
-        let commandend = cmd.len();
-        Ok(History {
-            id: row.get("id")?,
-            cmd,
-            start: row.get("start")?,
-            exit_status: row.get("exit_status")?,
-            duration: row.get("duration")?,
-            count: row.get("count")?,
-            session: row.get("session")?,
-            host: row.get("host")?,
-            dir: row.get("dir")?,
-            searchrange: [(
-                History::COMMAND_START,
-                commandend + (History::COMMAND_START),
-            )],
+    let history_entries = stmt
+        .query_map([], |row| {
+            let cmd: String = row.get("cmd")?;
+            let commandend = cmd.len();
+            Ok(History {
+                id: row.get("id")?,
+                cmd,
+                start: row.get("start")?,
+                exit_status: row.get("exit_status")?,
+                duration: row.get("duration")?,
+                count: row.get("count")?,
+                session: row.get("session")?,
+                host: row.get("host")?,
+                dir: row.get("dir")?,
+                searchrange: [(
+                    History::COMMAND_START,
+                    commandend + (History::COMMAND_START),
+                )],
+            })
         })
-    });
-    for person in cats.unwrap() {
-        if person.is_ok() {
-            let x = person.unwrap();
-            let mut c = history_collection.write().unwrap();
-            c.collection.push(x);
+        .unwrap();
+
+    let mut filtered_history_entries = history_entries.filter_map(|x| x.ok()).peekable();
+
+    'outer: while filtered_history_entries.peek().is_some() {
+        let mut c = history_collection.lock().unwrap();
+        for _ in 0..100 {
+            if let Some(history_entry) = filtered_history_entries.next() {
+                c.collection.push(history_entry);
+            } else {
+                break 'outer;
+            }
         }
     }
-    let mut c = history_collection.write().unwrap();
+
+    let mut c = history_collection.lock().unwrap();
     c.filled = true;
 }
 
@@ -94,10 +103,10 @@ struct AppState {
 }
 
 fn filter_entries(
-    history_collection: Arc<RwLock<HistoryCollection>>,
+    history_collection: Arc<Mutex<HistoryCollection>>,
     location: &Location,
     tx_item: SkimItemSender,
-    end_early: Arc<RwLock<bool>>,
+    end_early: Arc<Mutex<bool>>,
     grouped: bool,
 ) {
     let app_state = AppState {
@@ -109,11 +118,11 @@ fn filter_entries(
     let mut seen_commands = HashSet::new();
 
     let filled = {
-        let c = history_collection.read().unwrap();
+        let c = history_collection.lock().unwrap();
         c.filled
     };
     if filled {
-        let c = history_collection.read().unwrap();
+        let c = history_collection.lock().unwrap();
         for i in 0..c.collection.len() {
             let wanted = filter_entry(location, &app_state, &c.collection[i]);
             if !grouped || !seen_commands.contains(&c.collection[i].cmd) {
@@ -128,16 +137,16 @@ fn filter_entries(
         let mut last_read = 0;
         'outer: loop {
             let filled = {
-                let c = history_collection.read().unwrap();
+                let c = history_collection.lock().unwrap();
                 c.filled
             };
             let len = {
-                let c = history_collection.read().unwrap();
+                let c = history_collection.lock().unwrap();
                 c.collection.len()
             };
             for i in last_read..len {
-                let c = history_collection.read().unwrap();
-                let end_early = end_early.read().unwrap();
+                let c = history_collection.lock().unwrap();
+                let end_early = end_early.lock().unwrap();
                 if *end_early {
                     break 'outer;
                 }
@@ -177,7 +186,7 @@ fn show_history(thequery: String) -> Result<String, String> {
     let mut location = get_starting_location();
     let mut grouped = true;
     let mut query = thequery;
-    let history_collection = Arc::new(RwLock::new(HistoryCollection::new()));
+    let history_collection = Arc::new(Mutex::new(HistoryCollection::new()));
 
     let _handle = {
         let history_collection = history_collection.clone();
@@ -212,7 +221,7 @@ fn show_history(thequery: String) -> Result<String, String> {
             .unwrap();
 
         let (tx_item, rx_item): (SkimItemSender, SkimItemReceiver) = unbounded();
-        let end_early = Arc::new(RwLock::new(false));
+        let end_early = Arc::new(Mutex::new(false));
 
         let handle = {
             let history_collection = history_collection.clone();
@@ -226,7 +235,7 @@ fn show_history(thequery: String) -> Result<String, String> {
 
         if let Some(output) = &selected_items {
             if output.is_abort {
-                let mut end_early = end_early.write().unwrap();
+                let mut end_early = end_early.lock().unwrap();
                 *end_early = true;
             }
         }
