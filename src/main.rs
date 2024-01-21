@@ -202,7 +202,7 @@ fn show_history(thequery: String) -> Result<String, String> {
             .height(Some("100%"))
             .multi(false)
             .reverse(true)
-            .prompt(Some("history >>"))
+            .prompt(Some(">"))
             .query(Some(&query))
             .bind(vec![
                 "f1:abort",
