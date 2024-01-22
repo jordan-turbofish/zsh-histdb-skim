@@ -1,22 +1,11 @@
 extern crate skim;
 use crate::environment::*;
+use chrono::Timelike;
 use chrono::{DateTime, Local, NaiveDateTime, TimeZone};
 use humantime::format_duration;
 use skim::prelude::*;
 use std::time::Duration;
-use std::time::SystemTime;
 use textwrap::fill;
-
-fn get_epoch_start_of_day() -> u64 {
-    let now = SystemTime::now();
-    let now_secs = now
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-
-    let seconds_since_midnight = now_secs % (24 * 3600);
-    now_secs - seconds_since_midnight
-}
 
 #[derive(Clone, Debug)]
 pub struct History {
@@ -44,16 +33,21 @@ impl History {
 impl History {
     fn format_date(&self, full: bool) -> String {
         let naive = NaiveDateTime::from_timestamp_opt(self.start as i64, 0).unwrap_or_default();
-        let starttime: DateTime<Local> = Local.from_utc_datetime(&naive);
+        let start_time: DateTime<Local> = Local.from_utc_datetime(&naive);
+        let current_time: DateTime<Local> = Local::now();
+        let seconds_since_midnight = (current_time.hour() * 3600
+            + current_time.minute() * 60
+            + current_time.second()) as i64;
+        let day_beginning = current_time.timestamp() - seconds_since_midnight;
         if full {
             let mut dateinfo = String::from("");
             dateinfo.push_str(&get_date_format());
             dateinfo.push_str(" %H:%M");
-            return format!("{}", starttime.format(&dateinfo));
-        } else if self.start > get_epoch_start_of_day() {
-            return format!("{}", starttime.format("%H:%M"));
+            return format!("{}", start_time.format(&dateinfo));
+        } else if start_time.timestamp() > day_beginning {
+            return format!("{}", start_time.format("%H:%M"));
         } else {
-            return format!("{}", starttime.format(&get_date_format()));
+            return format!("{}", start_time.format(&get_date_format()));
         }
     }
 
