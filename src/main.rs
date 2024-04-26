@@ -89,8 +89,8 @@ fn read_entries(history_collection: Arc<Mutex<HistoryCollection>>) {
 
 fn filter_entry(location: &Location, app_state: &AppState, entry: &History) -> bool {
     match location {
-        Location::Session => entry.session == app_state.session,
-        Location::Directory => entry.dir == app_state.dir,
+        Location::Session => entry.session == app_state.session && entry.host == app_state.machine,
+        Location::Directory => entry.dir == app_state.dir && entry.host == app_state.machine,
         Location::Machine => entry.host == app_state.machine,
         Location::Everywhere => true,
     }
