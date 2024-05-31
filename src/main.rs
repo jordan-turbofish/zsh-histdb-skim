@@ -124,12 +124,12 @@ fn filter_entries(
     if filled {
         let c = history_collection.lock().unwrap();
         for i in 0..c.collection.len() {
-            if !grouped || !seen_commands.contains(&c.collection[i].cmd) {
-                if filter_entry(location, &app_state, &c.collection[i]) {
-                    let history_entry = c.collection[i].clone();
-                    let _ = tx_item.send(Arc::new(history_entry));
-                    seen_commands.insert(c.collection[i].cmd.clone());
-                }
+            if (!grouped || !seen_commands.contains(&c.collection[i].cmd))
+                && filter_entry(location, &app_state, &c.collection[i])
+            {
+                let history_entry = c.collection[i].clone();
+                let _ = tx_item.send(Arc::new(history_entry));
+                seen_commands.insert(c.collection[i].cmd.clone());
             }
         }
     } else {
@@ -149,12 +149,12 @@ fn filter_entries(
                 if *end_early {
                     break 'outer;
                 }
-                if !grouped || !seen_commands.contains(&c.collection[i].cmd) {
-                    if filter_entry(location, &app_state, &c.collection[i]) {
-                        let history_entry = c.collection[i].clone();
-                        let _ = tx_item.send(Arc::new(history_entry));
-                        seen_commands.insert(c.collection[i].cmd.clone());
-                    }
+                if (!grouped || !seen_commands.contains(&c.collection[i].cmd))
+                    && filter_entry(location, &app_state, &c.collection[i])
+                {
+                    let history_entry = c.collection[i].clone();
+                    let _ = tx_item.send(Arc::new(history_entry));
+                    seen_commands.insert(c.collection[i].cmd.clone());
                 }
             }
             last_read = len;
