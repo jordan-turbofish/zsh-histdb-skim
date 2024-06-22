@@ -265,12 +265,7 @@ fn process_result(
                 if sel.selected_items.is_empty() {
                     return SelectionResult::NullCommand;
                 } else {
-                    return SelectionResult::Command(
-                        ((*sel.selected_items[0]).as_any().downcast_ref::<History>())
-                            .unwrap()
-                            .command()
-                            .to_string(),
-                    );
+                    return SelectionResult::Command(sel.selected_items[0].output().to_string());
                 }
             }
             Key::F(1) => {

@@ -99,4 +99,8 @@ impl SkimItem for History {
     fn get_matching_ranges(&self) -> Option<&[(usize, usize)]> {
         Some(&self.searchrange)
     }
+
+    fn output(&self) -> Cow<str> {
+        Cow::Borrowed(&self.cmd)
+    }
 }
