@@ -24,17 +24,23 @@ histdb-skim-download(){
   if [[ -z $(histdb-skim-get-os) ]]; then
     echo "Could not find prebuild executable"
     echo "Sorry, you have to do it yourself"
+  elif [[ -z "$HISTDB_SKIM_VERSION" ]]; then
+    echo "Could not find prebuild executable"
+    echo "Sorry, you have to do it yourself"
   else
     echo "Downloading binary"
     mkdir -p ${BIN_DIR}
-    curl -s -JL https://github.com/jordan-turbofish/zsh-histdb-skim/releases/download/${HISTB_SKIM_VERSION}/zsh-histdb-skim-$(histdb-skim-get-os) -o ${BIN_PATH}
+    curl -s -JL https://github.com/jordan-turbofish/zsh-histdb-skim/releases/download/${HISTDB_SKIM_VERSION}/zsh-histdb-skim-$(histdb-skim-get-os) -o ${BIN_PATH}
     chmod +x ${BIN_PATH}
   fi
 }
 
 histdb-skim-ensure () {
   local HISTDB_SKIM_VERSION=$(histdb-skim-get-latest-version)
-  if [[ ! -f ${BIN_PATH} || $(${BIN_PATH} --version) != ${HISTDB_SKIM_VERSION} ]]; then
+  if [[ -z "$HISTDB_SKIM_VERSION" ]]; then
+    echo "Could not find prebuild executable"
+    echo "Sorry, you have to do it yourself"
+  elif [[ ! -f ${BIN_PATH} || $(${BIN_PATH} --version) != ${HISTDB_SKIM_VERSION} ]]; then
     histdb-skim-download
   fi
 }
