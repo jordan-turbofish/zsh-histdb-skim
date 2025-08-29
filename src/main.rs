@@ -128,7 +128,7 @@ fn filter_entries(
                 && filter_entry(location, &app_state, &c.collection[i])
             {
                 let history_entry = c.collection[i].clone();
-                let _ = tx_item.send(Arc::new(history_entry));
+                let _ = tx_item.send(vec![Arc::new(history_entry)]);
                 seen_commands.insert(c.collection[i].cmd.clone());
             }
         }
@@ -153,7 +153,7 @@ fn filter_entries(
                     && filter_entry(location, &app_state, &c.collection[i])
                 {
                     let history_entry = c.collection[i].clone();
-                    let _ = tx_item.send(Arc::new(history_entry));
+                    let _ = tx_item.send(vec![Arc::new(history_entry)]);
                     seen_commands.insert(c.collection[i].cmd.clone());
                 }
             }
