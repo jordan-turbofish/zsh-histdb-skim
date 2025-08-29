@@ -142,7 +142,7 @@ fn filter_entries(
                 entries_block.push(Arc::new(c.collection[i].clone()));
                 seen_commands.insert(c.collection[i].cmd.clone());
             }
-            next_idx = i+1;
+            next_idx = i + 1;
             if entries_block.len() == block_size {
                 break;
             }
