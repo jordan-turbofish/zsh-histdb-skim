@@ -115,52 +115,41 @@ fn filter_entries(
         machine: get_current_host(),
     };
 
+    // TODO: Do we care about grouping across hosts?
     let mut seen_commands = HashSet::new();
+    let mut filled = false;
+    let mut len = 0;
+    let mut next_idx = 0;
+    let block_size = 100;
 
-    let filled = {
+    while !filled || next_idx < len {
+        {
+            let end_early = end_early.lock().unwrap();
+            if *end_early {
+                break;
+            }
+        }
+        // try to grab up to block_size items
+        let mut entries_block: Vec<Arc<dyn SkimItem>> = Vec::with_capacity(block_size);
         let c = history_collection.lock().unwrap();
-        c.filled
-    };
-    if filled {
-        let c = history_collection.lock().unwrap();
-        for i in 0..c.collection.len() {
+        filled = c.filled;
+        len = c.collection.len();
+
+        for i in next_idx..len {
             if (!grouped || !seen_commands.contains(&c.collection[i].cmd))
                 && filter_entry(location, &app_state, &c.collection[i])
             {
-                let history_entry = c.collection[i].clone();
-                let _ = tx_item.send(vec![Arc::new(history_entry)]);
+                entries_block.push(Arc::new(c.collection[i].clone()));
                 seen_commands.insert(c.collection[i].cmd.clone());
             }
-        }
-    } else {
-        let mut last_read = 0;
-        'outer: loop {
-            let filled = {
-                let c = history_collection.lock().unwrap();
-                c.filled
-            };
-            let len = {
-                let c = history_collection.lock().unwrap();
-                c.collection.len()
-            };
-            for i in last_read..len {
-                let c = history_collection.lock().unwrap();
-                let end_early = end_early.lock().unwrap();
-                if *end_early {
-                    break 'outer;
-                }
-                if (!grouped || !seen_commands.contains(&c.collection[i].cmd))
-                    && filter_entry(location, &app_state, &c.collection[i])
-                {
-                    let history_entry = c.collection[i].clone();
-                    let _ = tx_item.send(vec![Arc::new(history_entry)]);
-                    seen_commands.insert(c.collection[i].cmd.clone());
-                }
-            }
-            last_read = len;
-            if filled {
+            next_idx = i+1;
+            if entries_block.len() == block_size {
                 break;
             }
+        }
+
+        if entries_block.len() > 0 {
+            let _ = tx_item.send(entries_block);
         }
     }
 }
