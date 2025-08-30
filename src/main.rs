@@ -11,6 +11,7 @@ use crate::location::Location;
 use crate::query::build_query_string;
 use crate::title::generate_title;
 
+use clap::Parser;
 use rusqlite::{Connection, OpenFlags, Result};
 use skim::prelude::*;
 use std::collections::HashSet;
@@ -288,22 +289,55 @@ fn process_result(
     }
 }
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(long = "zsh", help = "ZSH source for plugin.")]
+    zsh: bool,
+    #[arg(last = true)]
+    query: Vec<String>
+}
+
+fn zsh() {
+    print!(
+r##"
+_histdb-skim-widget() {{
+  origquery=${{BUFFER}}
+  output=$( \
+    HISTDB_HOST=${{HISTDB_HOST:-"'$(sql_escape ${{HOST}})'"}} \
+    HISTDB_SESSION=$HISTDB_SESSION \
+    HISTDB_FILE=$HISTDB_FILE \
+    zsh-histdb-skim -- "$origquery"\
+  )
+
+  if [ $? -eq 0 ]; then
+    BUFFER=$output
+  else
+    BUFFER=$origquery
+  fi
+
+  CURSOR=$#BUFFER
+  zle redisplay
+}}
+
+zle -N histdb-skim-widget _histdb-skim-widget
+bindkey -M emacs '^r' histdb-skim-widget
+bindkey -M viins '^r' histdb-skim-widget
+"##)
+}
+
 fn main() -> Result<()> {
     let _conn =
         Connection::open_with_flags(get_histdb_database(), OpenFlags::SQLITE_OPEN_READ_ONLY);
 
-    let args: Vec<String> = env::args().collect();
-    let query = if args.len() > 1 {
-        args[1].to_string()
-    } else {
-        "".to_string()
-    };
+    let args = Args::parse();
 
-    if query == "--version" {
-        println!("v0.8.22");
-        std::process::exit(1);
+    if args.zsh {
+        zsh();
+        return Ok(())
     }
 
+    let query = args.query.join(" ");
     let result = show_history(query);
     if result.is_ok() {
         println!("{}", result.ok().unwrap());
@@ -311,6 +345,6 @@ fn main() -> Result<()> {
         eprintln!("{}", result.err().unwrap());
         std::process::exit(1);
     }
-
+    
     Ok(())
 }
