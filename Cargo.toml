@@ -6,15 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-two_percent = "0.12.16"
-rusqlite = "0.37.0"
-tuikit = "0.5.0"
+skim = "3.5.0"
+rusqlite = "0.38.0"
 chrono = "0.4.31"
 enum-map = "2.7.3"
 log = "0.4.20"
 textwrap = "0.16.0"
 humantime = "2.1.0"
 clap = { version = "4.5.46", features = ["derive"] }
+crossterm = "0.29.0"
+color-eyre = "0.6.5"
 
 [dev-dependencies]
 regex = "*"

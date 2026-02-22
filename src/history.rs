@@ -70,7 +70,7 @@ impl History {
 }
 
 impl SkimItem for History {
-    fn text(&self) -> Cow<str> {
+    fn text(&self) -> Cow<'_, str> {
         let information = format!("{:10} {}", self.format_date(false), self.cmd);
         Cow::Owned(information)
     }
@@ -100,7 +100,7 @@ impl SkimItem for History {
         Some(&self.searchrange)
     }
 
-    fn output(&self) -> Cow<str> {
+    fn output(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.cmd)
     }
 }

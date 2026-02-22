@@ -12,10 +12,11 @@ use crate::query::build_query_string;
 use crate::title::generate_title;
 
 use clap::Parser;
-use rusqlite::{Connection, OpenFlags, Result};
+use color_eyre::{Report, Result};
+use crossterm::event::{KeyCode, KeyModifiers};
+use rusqlite::{Connection, OpenFlags};
 use skim::prelude::*;
 use std::collections::HashSet;
-use std::env;
 use std::sync::Mutex;
 use std::thread;
 
@@ -52,11 +53,12 @@ fn read_entries(history_collection: Arc<Mutex<HistoryCollection>>) {
     let history_entries = stmt
         .query_map([], |row| {
             let cmd: String = row.get("cmd")?;
+            let start: i64 = row.get("start")?;
             let commandend = cmd.len();
             Ok(History {
                 id: row.get("id")?,
                 cmd,
-                start: row.get("start")?,
+                start: start as u64,
                 exit_status: row.get("exit_status")?,
                 duration: row.get("duration")?,
                 count: row.get("count")?,
@@ -187,24 +189,24 @@ fn show_history(thequery: String) -> Result<String, String> {
         let title = generate_title(&location);
 
         let options = SkimOptionsBuilder::default()
-            .height(Some("100%"))
+            .height("100%")
             .multi(false)
             .reverse(true)
-            .prompt(Some(">"))
-            .query(Some(&query))
+            .prompt(">")
+            .query(&query)
             .bind(vec![
-                "f1:abort",
-                "f2:abort",
-                "f3:abort",
-                "f4:abort",
-                "f5:abort",
-                "ctrl-r:abort",
-                "ctrl-u:half-page-up",
-                "ctrl-d:half-page-down",
+                "f1:abort".into(),
+                "f2:abort".into(),
+                "f3:abort".into(),
+                "f4:abort".into(),
+                "f5:abort".into(),
+                "ctrl-r:abort".into(),
+                "ctrl-u:half-page-up".into(),
+                "ctrl-d:half-page-down".into(),
             ])
-            .header(Some(&title))
-            .preview(Some("")) // preview should be specified to enable preview window
-            .nosort(get_nosort_option())
+            .header(&title)
+            .preview("") // preview should be specified to enable preview window
+            .no_sort(get_nosort_option())
             .build()
             .unwrap();
 
@@ -219,9 +221,9 @@ fn show_history(thequery: String) -> Result<String, String> {
             })
         };
 
-        let selected_items = Skim::run_with(&options, Some(rx_item));
+        let selected_items = Skim::run_with(options, Some(rx_item));
 
-        if let Some(output) = &selected_items {
+        if let Ok(output) = &selected_items {
             if output.is_abort {
                 let mut end_early = end_early.lock().unwrap();
                 *end_early = true;
@@ -241,39 +243,42 @@ fn show_history(thequery: String) -> Result<String, String> {
 }
 
 fn process_result(
-    selected_items: &Option<SkimOutput>,
+    selected_items: &Result<SkimOutput, Report>,
     loc: &mut Location,
     grouped: &mut bool,
 ) -> SelectionResult {
-    if selected_items.is_some() {
+    if selected_items.is_ok() {
         let sel = selected_items.as_ref().unwrap();
-        match sel.final_key {
-            Key::ESC | Key::Ctrl('c') | Key::Ctrl('d') | Key::Ctrl('z') => {
+        match (sel.final_key.code, sel.final_key.modifiers) {
+            (KeyCode::Esc, KeyModifiers::NONE)
+            | (KeyCode::Char('c'), KeyModifiers::CONTROL)
+            | (KeyCode::Char('d'), KeyModifiers::CONTROL)
+            | (KeyCode::Char('z'), KeyModifiers::CONTROL) => {
                 return SelectionResult::Abort;
             }
-            Key::Enter => {
+            (KeyCode::Enter, KeyModifiers::NONE) => {
                 if sel.selected_items.is_empty() {
                     return SelectionResult::NullCommand;
                 } else {
                     return SelectionResult::Command(sel.selected_items[0].output().to_string());
                 }
             }
-            Key::F(1) => {
+            (KeyCode::F(1), KeyModifiers::NONE) => {
                 *loc = Location::Session;
             }
-            Key::F(2) => {
+            (KeyCode::F(2), KeyModifiers::NONE) => {
                 *loc = Location::Directory;
             }
-            Key::F(3) => {
+            (KeyCode::F(3), KeyModifiers::NONE) => {
                 *loc = Location::Machine;
             }
-            Key::F(4) => {
+            (KeyCode::F(4), KeyModifiers::NONE) => {
                 *loc = Location::Everywhere;
             }
-            Key::F(5) => {
+            (KeyCode::F(5), KeyModifiers::NONE) => {
                 *grouped = !*grouped;
             }
-            Key::Ctrl('r') => {
+            (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
                 *loc = match *loc {
                     Location::Session => Location::Directory,
                     Location::Directory => Location::Machine,
@@ -295,12 +300,12 @@ struct Args {
     #[arg(long = "zsh", help = "ZSH source for plugin.")]
     zsh: bool,
     #[arg(last = true)]
-    query: Vec<String>
+    query: Vec<String>,
 }
 
 fn zsh() {
     print!(
-r##"
+        r##"
 _histdb-skim-widget() {{
   origquery=${{BUFFER}}
   output=$( \
@@ -323,7 +328,8 @@ _histdb-skim-widget() {{
 zle -N histdb-skim-widget _histdb-skim-widget
 bindkey -M emacs '^r' histdb-skim-widget
 bindkey -M viins '^r' histdb-skim-widget
-"##)
+"##
+    )
 }
 
 fn main() -> Result<()> {
@@ -334,7 +340,7 @@ fn main() -> Result<()> {
 
     if args.zsh {
         zsh();
-        return Ok(())
+        return Ok(());
     }
 
     let query = args.query.join(" ");
@@ -345,6 +351,6 @@ fn main() -> Result<()> {
         eprintln!("{}", result.err().unwrap());
         std::process::exit(1);
     }
-    
+
     Ok(())
 }
